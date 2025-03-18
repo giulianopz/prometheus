@@ -1325,14 +1325,13 @@ func TestScrapeLoopSeriesAdded(t *testing.T) {
 }
 
 func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
-	model.NameValidationScheme = model.LegacyValidation
 	s := teststorage.New(t)
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	target := &Target{
-		labels: labels.FromStrings("pod_label_invalid_012", "test"),
+		labels: labels.FromStrings("pod_label_invalid_012\xff", "test"),
 	}
 	relabelConfig := []*relabel.Config{{
 		Action:      relabel.LabelMap,
@@ -1357,10 +1356,6 @@ func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
 func TestScrapeLoopFailLegacyUnderUTF8(t *testing.T) {
 	// Test that scrapes fail when default validation is utf8 but scrape config is
 	// legacy.
-	model.NameValidationScheme = model.UTF8Validation
-	defer func() {
-		model.NameValidationScheme = model.LegacyValidation
-	}()
 	s := teststorage.New(t)
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2395,7 +2390,7 @@ metric_total{n="2"} 2 # {t="2"} 2.0 20000
 			},
 		},
 		{
-			title: "Native histogram with three exemplars",
+			title: "Native histogram with three exemplars from classic buckets",
 
 			enableNativeHistogramsIngestion: true,
 			scrapeText: `name: "test_histogram"
@@ -2643,6 +2638,180 @@ metric: <
 				{Labels: labels.FromStrings("dummyID", "5617"), Value: -0.00029, Ts: 1234568, HasTs: false},
 				{Labels: labels.FromStrings("dummyID", "58215"), Value: -0.00019, Ts: 1625851055146, HasTs: true},
 			},
+		},
+		{
+			title:                           "Native histogram with exemplars and no classic buckets",
+			contentType:                     "application/vnd.google.protobuf",
+			enableNativeHistogramsIngestion: true,
+			scrapeText: `name: "test_histogram"
+help: "Test histogram."
+type: HISTOGRAM
+metric: <
+  histogram: <
+    sample_count: 175
+    sample_sum: 0.0008280461746287094
+    schema: 3
+    zero_threshold: 2.938735877055719e-39
+    zero_count: 2
+    negative_span: <
+      offset: -162
+      length: 1
+    >
+    negative_span: <
+      offset: 23
+      length: 4
+    >
+    negative_delta: 1
+    negative_delta: 3
+    negative_delta: -2
+    negative_delta: -1
+    negative_delta: 1
+    positive_span: <
+      offset: -161
+      length: 1
+    >
+    positive_span: <
+      offset: 8
+      length: 3
+    >
+    positive_delta: 1
+    positive_delta: 2
+    positive_delta: -1
+    positive_delta: -1
+	exemplars: <
+	  label: <
+        name: "dummyID"
+        value: "59732"
+      >
+      value: -0.00039
+      timestamp: <
+        seconds: 1625851155
+        nanos: 146848499
+      >
+	>
+	exemplars: <
+	  label: <
+        name: "dummyID"
+        value: "58242"
+      >
+      value: -0.00019
+      timestamp: <
+        seconds: 1625851055
+        nanos: 146848599
+      >
+	>
+	exemplars: <
+      label: <
+        name: "dummyID"
+        value: "5617"
+      >
+      value: -0.00029
+    >
+  >
+  timestamp_ms: 1234568
+>
+
+`,
+			histograms: []histogramSample{{
+				t:      1234568,
+				metric: labels.FromStrings("__name__", "test_histogram"),
+				h: &histogram.Histogram{
+					Count:         175,
+					ZeroCount:     2,
+					Sum:           0.0008280461746287094,
+					ZeroThreshold: 2.938735877055719e-39,
+					Schema:        3,
+					PositiveSpans: []histogram.Span{
+						{Offset: -161, Length: 1},
+						{Offset: 8, Length: 3},
+					},
+					NegativeSpans: []histogram.Span{
+						{Offset: -162, Length: 1},
+						{Offset: 23, Length: 4},
+					},
+					PositiveBuckets: []int64{1, 2, -1, -1},
+					NegativeBuckets: []int64{1, 3, -2, -1, 1},
+				},
+			}},
+			exemplars: []exemplar.Exemplar{
+				// Exemplars with missing timestamps are dropped for native histograms.
+				{Labels: labels.FromStrings("dummyID", "58242"), Value: -0.00019, Ts: 1625851055146, HasTs: true},
+				{Labels: labels.FromStrings("dummyID", "59732"), Value: -0.00039, Ts: 1625851155146, HasTs: true},
+			},
+		},
+		{
+			title:                           "Native histogram with exemplars but ingestion disabled",
+			contentType:                     "application/vnd.google.protobuf",
+			enableNativeHistogramsIngestion: false,
+			scrapeText: `name: "test_histogram"
+help: "Test histogram."
+type: HISTOGRAM
+metric: <
+  histogram: <
+    sample_count: 175
+    sample_sum: 0.0008280461746287094
+    schema: 3
+    zero_threshold: 2.938735877055719e-39
+    zero_count: 2
+    negative_span: <
+      offset: -162
+      length: 1
+    >
+    negative_span: <
+      offset: 23
+      length: 4
+    >
+    negative_delta: 1
+    negative_delta: 3
+    negative_delta: -2
+    negative_delta: -1
+    negative_delta: 1
+    positive_span: <
+      offset: -161
+      length: 1
+    >
+    positive_span: <
+      offset: 8
+      length: 3
+    >
+    positive_delta: 1
+    positive_delta: 2
+    positive_delta: -1
+    positive_delta: -1
+	exemplars: <
+	  label: <
+        name: "dummyID"
+        value: "59732"
+      >
+      value: -0.00039
+      timestamp: <
+        seconds: 1625851155
+        nanos: 146848499
+      >
+	>
+	exemplars: <
+	  label: <
+        name: "dummyID"
+        value: "58242"
+      >
+      value: -0.00019
+      timestamp: <
+        seconds: 1625851055
+        nanos: 146848599
+      >
+	>
+	exemplars: <
+      label: <
+        name: "dummyID"
+        value: "5617"
+      >
+      value: -0.00029
+    >
+  >
+  timestamp_ms: 1234568
+>
+
+`,
 		},
 	}
 
@@ -3711,8 +3880,6 @@ func TestScrapeReportLimit(t *testing.T) {
 func TestScrapeUTF8(t *testing.T) {
 	s := teststorage.New(t)
 	defer s.Close()
-	model.NameValidationScheme = model.UTF8Validation
-	t.Cleanup(func() { model.NameValidationScheme = model.LegacyValidation })
 
 	cfg := &config.ScrapeConfig{
 		JobName:                    "test",
@@ -5152,4 +5319,41 @@ func TestScrapePoolScrapeAfterReload(t *testing.T) {
 	require.NoError(t, p.reload(cfg))
 
 	<-time.After(1 * time.Second)
+}
+
+// Regression test against https://github.com/prometheus/prometheus/issues/16160.
+// The first scrape fails with a parsing error, but the second should
+// succeed and cause `metric_1=11` to appear in the appender.
+func TestScrapeAppendWithParseError(t *testing.T) {
+	const (
+		scrape1 = `metric_a 1
+`
+		scrape2 = `metric_a 11
+# EOF`
+	)
+
+	sl := newBasicScrapeLoop(t, context.Background(), nil, nil, 0)
+	sl.cache = newScrapeCache(sl.metrics)
+
+	now := time.Now()
+	capp := &collectResultAppender{next: nopAppender{}}
+	_, _, _, err := sl.append(capp, []byte(scrape1), "application/openmetrics-text", now)
+	require.Error(t, err)
+	_, _, _, err = sl.append(capp, nil, "application/openmetrics-text", now)
+	require.NoError(t, err)
+	require.Empty(t, capp.resultFloats)
+
+	capp = &collectResultAppender{next: nopAppender{}}
+	_, _, _, err = sl.append(capp, []byte(scrape2), "application/openmetrics-text", now.Add(15*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, capp.Commit())
+
+	want := []floatSample{
+		{
+			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
+			t:      timestamp.FromTime(now.Add(15 * time.Second)),
+			f:      11,
+		},
+	}
+	requireEqual(t, want, capp.resultFloats, "Appended samples not as expected:\n%s", capp)
 }
