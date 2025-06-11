@@ -13,6 +13,10 @@
 
 package parser
 
+import (
+	"fmt"
+)
+
 // Function represents a function of the expression language and is
 // used by function nodes.
 type Function struct {
@@ -21,6 +25,26 @@ type Function struct {
 	Variadic     int
 	ReturnType   ValueType
 	Experimental bool
+}
+
+// UDF is a user-defined function that will be resolved to
+// a standard PromQL expression when Eval is called.
+type UDF struct {
+	Name         string
+	ExpansionFmt string
+}
+
+func (f *UDF) Eval(exprs Expressions) Expr {
+	var ee []any
+	for _, e := range exprs {
+		ee = append(ee, any(e.String()))
+	}
+	expanded := fmt.Sprintf(f.ExpansionFmt, ee...)
+	expr, err := ParseExpr(expanded)
+	if err != nil {
+		panic(err)
+	}
+	return expr
 }
 
 // EnableExperimentalFunctions controls whether experimentalFunctions are enabled.
@@ -437,4 +461,10 @@ var Functions = map[string]*Function{
 func getFunction(name string, functions map[string]*Function) (*Function, bool) {
 	function, ok := functions[name]
 	return function, ok
+}
+
+// getUDF returns a user-defined function for the given name.
+func getUDF(name string, udfs map[string]*UDF) (*UDF, bool) {
+	udf, ok := udfs[name]
+	return udf, ok
 }

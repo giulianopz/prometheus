@@ -1319,18 +1319,25 @@ yydefault:
 		{
 			fn, exist := getFunction(yyDollar[1].item.Val, yylex.(*parser).functions)
 			if !exist {
-				yylex.(*parser).addParseErrf(yyDollar[1].item.PositionRange(), "unknown function with name %q", yyDollar[1].item.Val)
+				udfn, exist := getUDF(yyDollar[1].item.Val, yylex.(*parser).udfs)
+				if exist {
+					yyVAL.node = udfn.Eval(yyDollar[2].node.(Expressions))
+				} else {
+					yylex.(*parser).addParseErrf(yyDollar[1].item.PositionRange(), "unknown function with name %q", yyDollar[1].item.Val)
+				}
 			}
 			if fn != nil && fn.Experimental && !EnableExperimentalFunctions {
 				yylex.(*parser).addParseErrf(yyDollar[1].item.PositionRange(), "function %q is not enabled", yyDollar[1].item.Val)
 			}
-			yyVAL.node = &Call{
-				Func: fn,
-				Args: yyDollar[2].node.(Expressions),
-				PosRange: posrange.PositionRange{
-					Start: yyDollar[1].item.Pos,
-					End:   yylex.(*parser).closingParens[0],
-				},
+			if yyVAL.node == nil {
+				yyVAL.node = &Call{
+					Func: fn,
+					Args: yyDollar[2].node.(Expressions),
+					PosRange: posrange.PositionRange{
+						Start: yyDollar[1].item.Pos,
+						End:   yylex.(*parser).closingParens[0],
+					},
+				}
 			}
 			yylex.(*parser).closingParens = yylex.(*parser).closingParens[1:]
 		}

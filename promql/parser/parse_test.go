@@ -4386,6 +4386,7 @@ func TestParseExpressions(t *testing.T) {
 
 	for _, test := range testExpr {
 		t.Run(readable(test.input), func(t *testing.T) {
+
 			expr, err := ParseExpr(test.input)
 
 			// Unexpected errors are always caused by a bug.
@@ -5113,4 +5114,71 @@ func TestParseCustomFunctions(t *testing.T) {
 	call, ok := expr.(*Call)
 	require.True(t, ok)
 	require.Equal(t, "custom_func", call.Func.Name)
+}
+
+func TestParseUDF(t *testing.T) {
+
+	var tests = []struct {
+		name         string
+		expansionFmt string
+		input        string
+		expected     string
+	}{
+		{
+			name: "kube_pod_labels",
+			expansionFmt: `%s
+* on (pod) group_left ()
+group by (pod) (
+kube_pod_labels{beacon_clusterwrapper_name=~"${pg_cluster_id}",beacon_project_id=~"${project_ids}",cnpg_instance_role!="",pgd_workload_type=~"|pgd-node-data"}
+)`,
+			input: `kube_pod_labels(rate(http_request_counter_total{}[5m]))`,
+			expected: `
+		rate(http_request_counter_total{}[5m])
+	*
+		on (pod) group_left ()
+		group by (pod) (
+			kube_pod_labels{beacon_clusterwrapper_name=~"${pg_cluster_id}",beacon_project_id=~"${project_ids}",cnpg_instance_role!="",pgd_workload_type=~"|pgd-node-data"}
+		)`,
+		},
+		{
+			name: "replace_labels",
+			expansionFmt: `
+label_replace(
+  %[1]s,
+  "%[2]s",
+  "$1",
+  "%[3]s",
+  "(.*)"
+)	
+`,
+			input: `replace_labels(rate(http_request_counter_total{cnpg_instance_role="pippo"}[5m]), cnpg_instance_role, role)`,
+			expected: `label_replace(
+				rate(http_request_counter_total{cnpg_instance_role="pippo"}[5m]),
+				"cnpg_instance_role",
+				"$1",
+				"role",
+				"(.*)"
+			  )`,
+		},
+	}
+
+	for _, test := range tests {
+
+		p := NewParser(test.input, WithUserDefinedFunctions(
+			map[string]*UDF{
+				test.name: {
+					Name:         test.name,
+					ExpansionFmt: test.expansionFmt,
+				},
+			},
+		))
+		expr, err := p.ParseExpr()
+
+		require.NoError(t, err)
+
+		parsedExpected, err := ParseExpr(test.expected)
+		require.NoError(t, err)
+
+		require.Equal(t, Prettify(parsedExpected), Prettify(expr))
+	}
 }
